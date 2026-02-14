@@ -1,4 +1,9 @@
 #![no_std]
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "alloc")]
+use alloc::{vec::Vec, string::String};
 
 use core::{
     fmt::{self, Display, Formatter},
@@ -36,6 +41,7 @@ pub trait FormatPolicy {
     fn const_check_format(s: &'static str) -> bool;
 }
 
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AllowAll;
 impl FormatPolicy for AllowAll {
@@ -54,6 +60,24 @@ impl FormatPolicy for AsciiOnly {
     fn const_check_format(s: &'static str) -> bool { s.is_ascii() }
 }
 
+
+pub trait StoragePolicy {
+    const ALLOW_HEAP: bool;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StackOnly;
+impl StoragePolicy for StackOnly {
+    const ALLOW_HEAP: bool = false;  // Только [u8; MAX_BYTES]
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HeapAllowed; 
+impl StoragePolicy for HeapAllowed {
+    const ALLOW_HEAP: bool = true;   // Vec<u8> если > MAX_BYTES
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoundedStrError {
     TooShort,
@@ -63,71 +87,96 @@ pub enum BoundedStrError {
     MutationFailed,
 }
 
-#[derive(Clone)]
+
 pub struct BoundedStr<
     const MIN: usize,
     const MAX: usize,
     const MAX_BYTES: usize,
     L: LengthPolicy = Bytes,
     F: FormatPolicy = AllowAll,
+    S: StoragePolicy = StackOnly,  
 > {
     len: usize,
-    buf: [u8; MAX_BYTES],
-    _marker: PhantomData<(L, F)>,
+    buf: [u8; MAX_BYTES],    
+    #[cfg(feature = "alloc")]
+	heap_buf: Option<Vec<u8>>,  
+    _marker: PhantomData<(L, F, S)>,
 }
 
-impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L, F>
-    BoundedStr<MIN, MAX, MAX_BYTES, L, F>
+impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L, F, S>
+    BoundedStr<MIN, MAX, MAX_BYTES, L, F, S>
 where
     L: LengthPolicy,
     F: FormatPolicy,
+    S: StoragePolicy,
 {
- 
-     const _CHECK_BOUNDS: () = {
+    const _CHECK_BOUNDS: () = {
         assert!(MIN <= MAX, "MIN must be <= MAX");
         assert!(MAX <= MAX_BYTES, "MAX must be <= MAX_BYTES");
     };
 
 	
-    #[inline]
-    pub fn new(input: &str) -> Result<Self, BoundedStrError> {
+	#[inline]
+	pub fn new(input: &str) -> Result<Self, BoundedStrError> {
         let byte_len = input.len();
-        if byte_len > MAX_BYTES {
-            return Err(BoundedStrError::TooManyBytes);
-        }
         let logical_len = L::logical_len(input);
+
         if logical_len < MIN { return Err(BoundedStrError::TooShort); }
         if logical_len > MAX { return Err(BoundedStrError::TooLong); }
         if !F::check_format(input) { return Err(BoundedStrError::InvalidContent); }
+
+if byte_len <= MAX_BYTES || !S::ALLOW_HEAP {
+    // stack-only
+    let mut buf = [0u8; MAX_BYTES];
+    buf[..byte_len].copy_from_slice(input.as_bytes());
+    #[cfg(feature = "alloc")]
+    let heap_buf = None;
+    Ok(Self { len: byte_len, buf, #[cfg(feature = "alloc")] heap_buf, _marker: PhantomData })
+} else {
+    #[cfg(feature = "alloc")]
+    {
+        let heap_vec = input.as_bytes().to_vec();
         let mut buf = [0u8; MAX_BYTES];
-        buf[..byte_len].copy_from_slice(input.as_bytes());
-        Ok(Self { len: byte_len, buf, _marker: PhantomData })
+        buf[..MAX_BYTES].copy_from_slice(&heap_vec[..MAX_BYTES]);
+        Ok(Self { len: byte_len, buf, heap_buf: Some(heap_vec), _marker: PhantomData })
+    }
+}
     }
 
+
     #[inline(always)]
-    pub fn const_new(input: &'static str) -> Result<Self, BoundedStrError> {
-        let byte_len = input.len();
-        if byte_len > MAX_BYTES {
-            return Err(BoundedStrError::TooManyBytes);
-        }
-        let logical_len = L::const_logical_len(input);
-        if logical_len < MIN { return Err(BoundedStrError::TooShort); }
-        if logical_len > MAX { return Err(BoundedStrError::TooLong); }
-        if !F::const_check_format(input) { return Err(BoundedStrError::InvalidContent); }
-        let mut buf = [0u8; MAX_BYTES];
-        let src = input.as_bytes();
-        let mut i = 0;
-        while i < byte_len {
-            buf[i] = src[i];
-            i += 1;
-        }
-        Ok(Self { len: byte_len, buf, _marker: PhantomData })
-    }
+pub fn const_new(input: &'static str) -> Result<Self, BoundedStrError> {
+    let byte_len = input.len();
+    if byte_len > MAX_BYTES { return Err(BoundedStrError::TooManyBytes); }
+    let logical_len = L::const_logical_len(input);
+    if logical_len < MIN { return Err(BoundedStrError::TooShort); }
+    if logical_len > MAX { return Err(BoundedStrError::TooLong); }
+    if !F::const_check_format(input) { return Err(BoundedStrError::InvalidContent); }
+
+    let mut buf = [0u8; MAX_BYTES];
+    buf[..byte_len].copy_from_slice(input.as_bytes());
+
+    #[cfg(feature = "alloc")]
+    let heap_buf = None; // const_new всегда stack-only
+
+    Ok(Self { len: byte_len, buf, #[cfg(feature = "alloc")] heap_buf, _marker: PhantomData })
+}
 
     #[inline(always)]
     pub fn as_str(&self) -> &str {
-        debug_assert!(core::str::from_utf8(&self.buf[..self.len]).is_ok());
+        if self.len <= MAX_BYTES || !S::ALLOW_HEAP {
+            debug_assert!(core::str::from_utf8(&self.buf[..self.len]).is_ok());
+            unsafe { core::str::from_utf8_unchecked(&self.buf[..self.len]) }
+        } else {
+            #[cfg(feature = "alloc")]
+{
+    if let Some(heap_vec) = &self.heap_buf {
+        unsafe { core::str::from_utf8_unchecked(heap_vec) }
+    } else {
         unsafe { core::str::from_utf8_unchecked(&self.buf[..self.len]) }
+    }
+}
+        }
     }
 
     #[inline(always)] pub fn len_bytes(&self) -> usize { self.len }
@@ -221,22 +270,39 @@ where L: LengthPolicy, F: FormatPolicy
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
 }
 
-impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L, F> fmt::Debug
-    for BoundedStr<MIN, MAX, MAX_BYTES, L, F>
-where L: LengthPolicy, F: FormatPolicy
+impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L, F, S> fmt::Debug
+    for BoundedStr<MIN, MAX, MAX_BYTES, L, F, S>
+where
+    L: LengthPolicy,
+    F: FormatPolicy,
+    S: StoragePolicy,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("BoundedStr").field(&self.as_str()).finish()
+        f.debug_struct("BoundedStr")
+            .field("value", &self.as_str())
+            .field("len_bytes", &self.len_bytes())
+            .field("len_logical", &self.len_logical())
+            .finish()
     }
 }
 
 #[cfg(feature = "zeroize")]
-impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L, F> Drop
-    for BoundedStr<MIN, MAX, MAX_BYTES, L, F>
-where L: LengthPolicy, F: FormatPolicy
+impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L, F, S> Drop
+    for BoundedStr<MIN, MAX, MAX_BYTES, L, F, S>
+where
+    L: LengthPolicy,
+    F: FormatPolicy,
+    S: StoragePolicy,
 {
     fn drop(&mut self) {
         for b in &mut self.buf { *b = 0; }
+
+        #[cfg(feature = "alloc")]
+		if S::ALLOW_HEAP && let Some(heap_vec) = &mut self.heap_buf {
+			for b in heap_vec.iter_mut() {
+				*b = 0;
+			}
+		}
     }
 }
 
@@ -309,3 +375,10 @@ mod serde_impl {
 
 
 
+/// Stack-only (<4KiB)
+pub type StackStr<const MIN: usize, const MAX: usize, const MAXB: usize = MAX, L = Bytes, F = AllowAll> = 
+    BoundedStr<MIN, MAX, MAXB, L, F, StackOnly>;
+
+/// Stack + heap fallback (HTML 64KiB)
+pub type FlexStr<const MIN: usize, const MAX: usize, const MAXB: usize = 4096, L = Bytes, F = AllowAll> = 
+    BoundedStr<MIN, MAX, MAXB, L, F, HeapAllowed>;

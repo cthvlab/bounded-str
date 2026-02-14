@@ -1,28 +1,27 @@
 [package]
 name = "bounded-str"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Parse, don't validate! No-std bounded string with compile-time length limits and policies"
 license = "MIT"
 repository = "https://github.com/cthvlab/bounded-str"
 homepage = "https://github.com/cthvlab/bounded-str"
 readme = "README.md"
-authors = ["cthvlab"]   
-
+authors = ["cthvlab"]
 
 keywords = ["no-std", "string", "bounded", "embedded", "security"]
 categories = ["no-std", "data-structures", "parsing", "embedded", "cryptography"]
 
 [features]
-default = []
+default = ["alloc", "serde", "zeroize"]
+alloc = []
 serde = ["dep:serde"]
 zeroize = ["dep:zeroize"]
 constant-time = []
-alloc = [] 
 
 [dependencies]
-serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
-zeroize = { version = "1.8", optional = true, default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
+zeroize = { version = "1.8", default-features = false, features = ["alloc"], optional = true }
 
 [workspace]
 members = [

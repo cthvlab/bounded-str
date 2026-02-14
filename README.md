@@ -22,45 +22,54 @@ Crate creates generalized string types with compile-time parameters: `MIN`, `MAX
 
 - **Integration**: `Deref<Target=str>`, `Display`, `FromStr`, `TryFrom<&str>`, `serde` with auto-parsing.
 
-## Examples of types
-
-```rust
-
-use bounded_str::{BoundedStr, Bytes, Chars, AsciiOnly};
-
-// Matrix Room ID: 8-128 bytes
-
-type MatrixRoomId = BoundedStr<8, 128, 128, Bytes>;
-
-// Username: 3-32 characters, ASCII
-
-type Username = BoundedStr<3, 32, 64, Chars, AsciiOnly>;
-
-// Token: 16-64 bytes
-
-type SessionToken = BoundedStr<16, 64, 64, Bytes>;
-
-```
-
 ## Usage
 
 ```rust
 
-let room = MatrixRoomId::new("!abc123:matrix.org").unwrap();
+use bounded_str::{StackStr, FlexStr, Bytes, Chars, AsciiOnly};
+use serde::Deserialize;
 
-assert_eq!(&*room, "!abc123:matrix.org "); // Deref as &str
+// Matrix spec-compliant types — showcase ALL crate features:
 
-assert_eq!(room.len_bytes(), 19);
+// 1. Bytes (O(1)) — Room IDs, technical strings
+type RoomId     = StackStr<8, 255, 255, Bytes>; 
 
-// Parse, don't validate in serde
+// 2. Chars (Unicode) — usernames with Cyrillic/emoji  
+type Username   = StackStr<1, 255, 1024, Chars>; 
 
-#[derive(serde::Deserialize)]
+// 3. Bytes + AsciiOnly — device IDs, technical strings
+type DeviceId   = StackStr<1, 32, 32, Bytes, AsciiOnly>;
 
-struct LoginResponse {
+// 4. Passwords — short, zeroize-enabled
+type Password   = StackStr<8, 128, 128, Bytes>;  
 
-access_token: sessionToken, // Auto-length check during deserialization
+// 5. JWT tokens — large buffer (2KiB)
+type Token      = FlexStr<16, 2048, 2048, Bytes>; 
 
+// 6. HTML content — large, auto heap (up to 64KiB)
+type HtmlBody   = FlexStr<0, 65536, 65536, Bytes>;  
+
+// JSON auto-validation! (parse, don't validate)
+#[derive(Deserialize)]
+struct LoginRequest {
+    username:    Username,       // Unicode OK, 1-255 chars (1KiB buffer)
+    device_id:   DeviceId,       // ASCII only, 1-32 bytes (32B buffer)
+    password:    Password,       // 8-128 bytes, auto zeroize (128B buffer)
+    access_token: Option<Token>, // JWT up to 2KiB buffer
+    room_id:     Option<RoomId>, // Matrix room everywhere!
+    html_body:   HtmlBody,       // Large HTML → auto heap
 }
+
+// Real usage — invalid JSON fails automatically!
+let json = r#"{
+    "username": "alexey", 
+    "device_id": "DEV123",
+    "password": "MySecurePass123",
+    "html_body": "<p>Matrix <b>rich content</b> up to 64KiB</p>"
+}"#;
+
+let req: Result<LoginRequest, _> = serde_json::from_str(json);
+// Short password or oversized HTML → serde fails instantly! No manual if-checks needed.
 
 ```
 
