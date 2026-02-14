@@ -15,7 +15,7 @@ categories = ["no-std", "data-structures", "parsing", "embedded", "cryptography"
 [features]
 default = ["alloc", "serde", "zeroize"]
 alloc = []
-serde = ["dep:serde"]
+serde = ["dep:serde", "alloc", "serde/alloc"]
 zeroize = ["dep:zeroize"]
 constant-time = []
 
