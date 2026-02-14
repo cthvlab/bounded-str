@@ -64,21 +64,6 @@ access_token: sessionToken, // Auto-length check during deserialization
 
 ```
 
-## Comparison of approaches
-
-| Aspect | BoundedStr (Parse) | The usual String + validate() |
-
-|--------|--------------------|-----------------------------|
-
-| Creation | `Type::new(str)?` → guaranteed type | `if validate(str) { String::from(str) }` |
-
-| Access | `&*bound.as_str()` without checks | Repeated `if len_ok(s)` everywhere |
-
-| Memory | Stack `[u8; N]`, zero-heap | Heap, allocation |
-
-| Matrix | Ideal for roomId/UserId|Runtime DoS from long lines |
-
-| Security | zeroize, ct_eq | Manual cleaning |
 
 ## Cargo Features
 
