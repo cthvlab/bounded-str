@@ -1,6 +1,6 @@
 [package]
 name = "bounded-str"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Parse, don't validate! No-std bounded string with compile-time length limits and policies"
 license = "MIT"
