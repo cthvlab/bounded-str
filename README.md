@@ -1,31 +1,36 @@
-# BoundedStr: No-Std, Zero-Heap strings with compile-time constraints
+# BoundedStr: Type-Safe Strings with Static Limits and Hybrid Storage
 
-BoundedStr are secure string types for Rust that implement the "parse, don't validate" approach. Parsing immediately converts raw data into types with guaranteed correctness (length, format), eliminating repeated checks in business logic.
+BoundedStr is a library for creating string types with guaranteed invariants.  
+It follows the **"Parse, don't validate"** principle: once an object is created, you can trust its length, format, and encoding.
 
-## Basic concept
+- **Hybrid Storage**: Automatic selection between stack (`StackStr`) and dynamic memory (`FlexStr`) when the byte limit is exceeded.  
+- **Policy-Based Design**: You choose how to measure length (bytes or characters) and how to validate content (ASCII, AlphaNumeric, etc.) via traits.  
+- **No-Std First**: Full support for embedded systems, `alloc` is required only for `FlexStr`.  
 
-Crate creates generalized string types with compile-time parameters: `MIN`, `MAX`, `MAX_BYTES`. The check takes place in `new()` or deserialization — success means full validity. Storing in `[u8; MAX_BYTES]` on the stack provides zero-heap and `#![no_std]` compatibility.
+## Core Concepts
+
+### 1. Policies
+
+Instead of hard-coded logic, BoundedStr uses:
+
+- **LengthPolicy**: `Bytes` (fast, O(1)) or `Chars` (Unicode-correct, O(n)).  
+- **FormatPolicy**: `AllowAll`, `AsciiOnly`, or your own rules (e.g., `EmailValidator`).  
+
+### 2. Storage Types
+
+- **StackStr**: Always on the stack. If the string does not fit in `MAX_BYTES` — error.  
+- **FlexStr**: Tries to fit on the stack, but if `alloc` is enabled and the data is large — transparently moves to the heap.  
 
 ## Key Features
 
--**Compile-time constraints**: `MIN ≤ MAX ≤ MAX_BYTES` are checked by the compiler.
-
--**Runtime parsing**: `BoundedStr::new(&str)` validates length/format, returns `Result<Self, BoundedStrError>`.
-
-- **Policies (Traits)**:
-
-* `LengthPolicy`: `Bytes` (by bytes, O(1)) or `Chars` (Unicode characters, O(n)).
-
--`FormatPolicy`: `AllowAll`, `AsciiOnly` + expandable (e.g. `AlphaNumeric`).
-
--**Security**: `debug_assert!` in `as_str()`, features `zeroize` (zeroing at `Drop`), `constant-time` (`ct_eq` against timing attacks).
-
-- **Integration**: `Deref<Target=str>`, `Display`, `FromStr`, `TryFrom<&str>`, `serde` with auto-parsing.
+- **Compile-time checks**: Checks `MIN <= MAX` at compile time via const assertions.  
+- **Transactional Mutation**: `mutate()` allows modifying the string via `&mut [u8]`, rolling back if the result violates type rules.  
+- **Zero-cost Deref**: Implements `Deref<Target=str>`, works like a regular string with no overhead.  
+- **Security**: Supports `zeroize` for automatic memory clearing (passwords, keys) and constant-time comparison.  
 
 ## Usage
 
 ```rust
-
 use bounded_str::{StackStr, FlexStr, Bytes, Chars, AsciiOnly};
 use serde::Deserialize;
 
@@ -70,30 +75,32 @@ let json = r#"{
 
 let req: Result<LoginRequest, _> = serde_json::from_str(json);
 // Short password or oversized HTML → serde fails instantly! No manual if-checks needed.
-
-```
-
+````
 
 ## Cargo Features
 
 ```toml
-
 [dependencies]
-
-bounded-str = { version = "0.1", features = ["serde", "zeroize", "constant-time"] }
-
+bounded-str = { version = "0.1", features = ["serde", "alloc", "zeroize", "constant-time"] }
 ```
 
--`serde`: Deserialization with parsing.
+* **serde**: Automatic validation during deserialization.
+* **alloc**: Enables `FlexStr` and dynamic memory support.
+* **zeroize**: Clears the buffer when it goes out of scope (`Drop`).
+* **constant-time**: Protection against timing attacks during string comparisons.
 
--`zeroize`: Auto-zeroing the buffer (passwords/tokens).
+## Limitations
 
-- `constant-time`: `ct_eq(&self, other)`.
+* By default, the stack limit is set to a reasonable size (recommended up to 4KiB).
+* The `Chars` policy requires a full scan of the string during creation and mutation.
 
-## Restrictions
+## Important Architectural Note
 
--`Chars` — O(n) time.
+Although `FormatPolicy` allows checking data format (e.g., Email or Regex), remember the **"Parse, don't validate"** philosophy:
 
--`MAX_BYTES ≤ 4KiB` (stack).
+* **Complexity**: Attempting perfect Email validation via policies may produce fragile code.
+* **Recommendation**: Use policies for structural constraints (length, ASCII encoding, absence of control characters).
+* **Business Logic**: Deep validation (e.g., domain existence, RFC 5322 compliance) is better handled by specialized parsers that convert BoundedStr into stricter data types.
 
-- No `Copy` (large buffers).
+
+
