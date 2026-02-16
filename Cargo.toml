@@ -1,6 +1,6 @@
 [package]
 name = "bounded-str"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "Parse, don't validate! No-std bounded string with compile-time length limits and policies"
 license = "MIT"
@@ -13,7 +13,7 @@ keywords = ["no-std", "string", "bounded", "embedded", "security"]
 categories = ["no-std", "data-structures", "parsing", "embedded", "cryptography"]
 
 [features]
-default = ["alloc", "serde", "zeroize"]
+default = ["alloc", "serde", "zeroize", "constant-time"]
 alloc = []
 serde = ["dep:serde", "alloc", "serde/alloc"]
 zeroize = ["dep:zeroize"]

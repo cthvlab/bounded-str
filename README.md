@@ -19,12 +19,13 @@ Instead of hard-coded logic, BoundedStr uses:
 ### 2. Storage Types
 
 - **StackStr**: Always on the stack. If the string does not fit in `MAX_BYTES` — error.  
-- **FlexStr**: Tries to fit on the stack, but if `alloc` is enabled and the data is large — transparently moves to the heap.  
+- **FlexStr**: Tries to fit on the stack, but if `alloc` is enabled and the data is large — transparently moves to the heap. 
+Optimized Memory: Starting from v0.1.4, FlexStr uses an internal enum. If data moves to the heap, the stack buffer is freed, significantly reducing stack pressure (SSO). 
 
 ## Key Features
 
 - **Compile-time checks**: Checks `MIN <= MAX` at compile time via const assertions.  
-- **Transactional Mutation**: `mutate()` allows modifying the string via `&mut [u8]`, rolling back if the result violates type rules.  
+- **Transactional Mutation**: `mutate()` allows modifying both content `&mut [u8]` and length `&mut usize`. It automatically rolls back if the new string violates length, UTF-8, or format rules.
 - **Zero-cost Deref**: Implements `Deref<Target=str>`, works like a regular string with no overhead.  
 - **Security**: Supports `zeroize` for automatic memory clearing (passwords, keys) and constant-time comparison.  
 
@@ -45,21 +46,21 @@ type Username   = StackStr<1, 255, 1024, Chars>;
 // 3. Bytes + AsciiOnly — device IDs, technical strings
 type DeviceId   = StackStr<1, 32, 32, Bytes, AsciiOnly>;
 
-// 4. Passwords — short, zeroize-enabled
-type Password   = StackStr<8, 128, 128, Bytes>;  
+// 4. Passwords — short, zeroize-enabled - true
+type Password = StackStr<8, 128, 128, Bytes, AsciiOnly, true>; 
 
 // 5. JWT tokens — large buffer (2KiB)
-type Token      = FlexStr<16, 2048, 2048, Bytes>; 
+type Token      = FlexStr<16, 2048, 255, Bytes>; 
 
-// 6. HTML content — large, auto heap (up to 64KiB)
-type HtmlBody   = FlexStr<0, 65536, 65536, Bytes>;  
+// 6. HTML content — large, auto heap (up to 64KiB) if > 1024
+type HtmlBody   = FlexStr<0, 65536, 1024, Bytes>;  
 
 // JSON auto-validation! (parse, don't validate)
 #[derive(Deserialize)]
 struct LoginRequest {
     username:    Username,       // Unicode OK, 1-255 chars (1KiB buffer)
     device_id:   DeviceId,       // ASCII only, 1-32 bytes (32B buffer)
-    password:    Password,       // 8-128 bytes, auto zeroize (128B buffer)
+    password:    Password,       // 8-128 bytes, zeroize (128B buffer)
     access_token: Option<Token>, // JWT up to 2KiB buffer
     room_id:     Option<RoomId>, // Matrix room everywhere!
     html_body:   HtmlBody,       // Large HTML → auto heap
@@ -74,7 +75,10 @@ let json = r#"{
 }"#;
 
 let req: Result<LoginRequest, _> = serde_json::from_str(json);
-// Short password or oversized HTML → serde fails instantly! No manual if-checks needed.
+
+// Short password or oversized HTML → serde fails instantly! 
+// No manual if-checks needed.
+
 ````
 
 ## Cargo Features
@@ -87,7 +91,7 @@ bounded-str = { version = "0.1", features = ["serde", "alloc", "zeroize", "const
 * **serde**: Automatic validation during deserialization.
 * **alloc**: Enables `FlexStr` and dynamic memory support.
 * **zeroize**: Clears the buffer when it goes out of scope (`Drop`).
-* **constant-time**: Protection against timing attacks during string comparisons.
+* **constant-time**: Protects all equality checks (==) against timing attacks by comparing every byte regardless of content.
 
 ## Limitations
 
