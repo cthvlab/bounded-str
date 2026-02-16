@@ -88,7 +88,6 @@ impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy
         assert!(MIN <= MAX, "MIN must be <= MAX");
     };
 
-
     #[inline(always)]
 	pub fn len_bytes(&self) -> usize {
         match &self.storage {
@@ -274,28 +273,33 @@ impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy
     type Target = str;
     fn deref(&self) -> &str { self.as_str() }
 }
+
 impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy, F: FormatPolicy, const Z: bool>
     TryFrom<&str> for BoundedStr<MIN, MAX, MAX_BYTES, L, F, Z>
 {
     type Error = BoundedStrError;
     fn try_from(s: &str) -> Result<Self, Self::Error> { Self::new(s) }
 }
+
 impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy, F: FormatPolicy, const Z: bool>
     FromStr for BoundedStr<MIN, MAX, MAX_BYTES, L, F, Z>
 {
     type Err = BoundedStrError;
     fn from_str(s: &str) -> Result<Self, Self::Err> { Self::new(s) }
 }
+
 impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy, F: FormatPolicy, const Z: bool>
     Hash for BoundedStr<MIN, MAX, MAX_BYTES, L, F, Z>
 {
     fn hash<H: Hasher>(&self, state: &mut H) { self.as_str().hash(state) }
 }
+
 impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy, F: FormatPolicy, const Z: bool>
     Display for BoundedStr<MIN, MAX, MAX_BYTES, L, F, Z>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { f.write_str(self.as_str()) }
 }
+
 impl<const MIN: usize, const MAX: usize, const MAX_BYTES: usize, L: LengthPolicy, F: FormatPolicy, const Z: bool>
     fmt::Debug for BoundedStr<MIN, MAX, MAX_BYTES, L, F, Z>
 {
